@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from typing import Generator
 import os
 import shutil
+from app.config import DATABASE_URL as CONFIG_DATABASE_URL
 
 
 def _resolve_database_url() -> str:
@@ -12,7 +13,11 @@ def _resolve_database_url() -> str:
 	if env_url:
 		return env_url
 
-	# 2) On Vercel/serverless, use /tmp which is the only writable path
+	# 2) Default to value from app.config (PostgreSQL by default)
+	if CONFIG_DATABASE_URL:
+		return CONFIG_DATABASE_URL
+
+	# 3) On Vercel/serverless, use /tmp which is the only writable path
 	#    Copy bundled sqlite file to /tmp on cold start so writes succeed
 	if os.getenv("VERCEL") == "1" or os.getenv("VERCEL_ENV"):
 		project_root = os.path.dirname(os.path.dirname(__file__))  # backend/
@@ -26,8 +31,8 @@ def _resolve_database_url() -> str:
 			pass
 		return "sqlite:////tmp/lance.db"
 
-	# 3) Local/dev default: keep sqlite in project directory
-	return "sqlite:///./lance.db"
+	# 4) Final fallback: Postgres on localhost
+	return "postgresql://postgres:password@localhost/lance_db"
 
 
 SQLALCHEMY_DATABASE_URL = _resolve_database_url()
