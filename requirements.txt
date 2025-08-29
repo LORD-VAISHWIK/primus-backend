@@ -1,0 +1,36 @@
+# Core backend
+fastapi
+uvicorn[standard]
+gunicorn
+sqlalchemy
+pydantic
+pydantic[email]
+passlib[bcrypt]
+python-jose
+python-dotenv
+databases
+websockets
+requests
+
+# Auth/Social login
+authlib
+httpx
+
+# Screenshot and image handling (for live shadow)
+mss
+pillow
+websocket-client
+
+# Date/time and utils
+python-multipart
+email-validator
+
+# For database migrations (optional, but recommended)
+alembic
+
+# For advanced parsing (optional)
+starlette
+
+# Add others as needed
+firebase-admin
+google-auth
