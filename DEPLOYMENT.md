@@ -78,7 +78,7 @@ nano .env
 
 ### 3. Database Setup
 
-For production, use PostgreSQL:
+PostgreSQL is required for production:
 
 ```bash
 # As root/sudo
@@ -90,8 +90,10 @@ GRANT ALL PRIVILEGES ON DATABASE lance_db TO primus;
 \q
 
 # Update DATABASE_URL in .env:
-# DATABASE_URL=postgresql://primus:your-secure-password@localhost/lance_db
+DATABASE_URL=postgresql://primus:your-secure-password@localhost/lance_db
 ```
+
+Note: SQLite can be used for development only. The application uses PostgreSQL by default.
 
 ### 4. Test the Application
 

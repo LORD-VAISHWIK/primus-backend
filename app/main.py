@@ -49,6 +49,9 @@ except Exception:
 Base.metadata.create_all(bind=engine)
 
 # Lightweight migration for SQLite: ensure users.wallet_balance column exists
+# NOTE: This migration code is SQLite-specific using PRAGMA commands.
+# For PostgreSQL production deployments, use Alembic for proper database migrations.
+# The try-except block will safely skip this for non-SQLite databases.
 try:
     from sqlalchemy import text
     with engine.connect() as conn:

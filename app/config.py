@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./lance.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost/lance_db")
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecret")
 
 def load_from_file(filename: str):

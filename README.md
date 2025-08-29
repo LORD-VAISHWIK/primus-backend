@@ -22,7 +22,7 @@ A comprehensive FastAPI backend for the Lance gaming cafe management system.
 ## Tech Stack
 
 - **Framework**: FastAPI
-- **Database**: SQLAlchemy (SQLite/PostgreSQL)
+- **Database**: SQLAlchemy with PostgreSQL (SQLite for development)
 - **Authentication**: JWT tokens
 - **WebSockets**: For real-time communication
 - **Task Queue**: Redis (optional)
