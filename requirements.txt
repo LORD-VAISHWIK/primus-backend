@@ -3,16 +3,16 @@
 # =============================================================================
 
 # Core FastAPI Framework & ASGI Server
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi==0.108.0
+uvicorn[standard]==0.25.0
 gunicorn==21.2.0
-starlette==0.27.0
+starlette==0.32.0
 
 # Database & ORM
-sqlalchemy==2.0.23
+sqlalchemy==2.0.25
 psycopg2-binary==2.9.9
 databases[postgresql]==0.8.0
-alembic==1.12.1
+alembic==1.13.1
 
 # Authentication & Security
 passlib[bcrypt]==1.7.4
@@ -22,8 +22,8 @@ bcrypt==4.1.2
 
 # Environment & Configuration
 python-dotenv==1.0.0
-pydantic==2.5.0
-pydantic[email]==2.5.0
+pydantic==2.5.3
+pydantic[email]==2.5.3
 
 # HTTP Client & API Integration
 httpx==0.25.2
@@ -63,11 +63,8 @@ python-dateutil==2.8.2
 # JSON Web Tokens
 PyJWT==2.8.0
 
-# CSV Processing
-csv-writer==1.0.0
-
 # File Upload & Processing
-python-magic==0.4.27
+python-magic==0.4.29
 
 # =============================================================================
 # PRODUCTION & DEPLOYMENT PACKAGES FOR UBUNTU SERVER
