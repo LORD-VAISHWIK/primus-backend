@@ -614,26 +614,27 @@ After=network.target postgresql.service redis-server.service
 Wants=postgresql.service redis-server.service
 
 [Service]
-Type=exec
+Type=simple
 User=primus
 Group=primus
 WorkingDirectory=/var/www/primus/backend
-Environment=PATH=/var/www/primus/backend/venv/bin
+Environment=PATH=/var/www/primus/backend/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=/var/www/primus/backend
-ExecStart=/var/www/primus/backend/venv/bin/gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/bin/sleep 5
+ExecStart=/var/www/primus/backend/venv/bin/python -m gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log --log-level info
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
-RestartSec=3
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=primus-backend
 
-# Security settings
+# Security settings (relaxed for debugging)
 NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/www/primus /var/log/primus /tmp
+ReadWritePaths=/var/www/primus /var/log/primus /tmp /var/lib/postgresql
 
 [Install]
 WantedBy=multi-user.target
@@ -908,9 +909,70 @@ echo "=== NETWORK CONNECTIONS ==="
 ss -tulpn | grep -E ':(80|443|8000|5432|6379)'
 EOF
 
-chmod +x /usr/local/bin/primus-status.sh
+# Create debugging script
+cat > /usr/local/bin/primus-debug.sh << 'EOF'
+#!/bin/bash
 
-print_status "Monitoring tools configured"
+echo "=== PRIMUS DEBUGGING INFORMATION ==="
+echo "Date: $(date)"
+echo ""
+
+echo "=== APPLICATION STRUCTURE ==="
+ls -la /var/www/primus/backend/
+echo ""
+
+echo "=== VIRTUAL ENVIRONMENT ==="
+ls -la /var/www/primus/backend/venv/bin/ | head -20
+echo ""
+
+echo "=== PYTHON PACKAGES ==="
+/var/www/primus/backend/venv/bin/pip list | grep -E "(fastapi|uvicorn|gunicorn|sqlalchemy|alembic)"
+echo ""
+
+echo "=== ENVIRONMENT FILE ==="
+head -20 /var/www/primus/backend/.env
+echo ""
+
+echo "=== DATABASE CONNECTION TEST ==="
+cd /var/www/primus/backend
+source venv/bin/activate
+python -c "
+import os
+from sqlalchemy import create_engine
+from dotenv import load_dotenv
+load_dotenv()
+db_url = os.getenv('DATABASE_URL')
+print(f'Database URL: {db_url}')
+try:
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        result = conn.execute('SELECT 1')
+        print('✅ Database connection successful')
+except Exception as e:
+    print(f'❌ Database connection failed: {e}')
+"
+
+echo ""
+echo "=== MANUAL APP TEST ==="
+python -c "
+try:
+    from main import app
+    print('✅ Application imports successfully')
+except Exception as e:
+    print(f'❌ Application import failed: {e}')
+    import traceback
+    traceback.print_exc()
+"
+
+echo ""
+echo "=== SYSTEMD SERVICE LOGS (LAST 50 LINES) ==="
+journalctl -u primus-backend --no-pager -l -n 50
+EOF
+
+chmod +x /usr/local/bin/primus-status.sh
+chmod +x /usr/local/bin/primus-debug.sh
+
+print_status "Monitoring and debugging tools configured"
 
 # =============================================================================
 # SET PERMISSIONS
@@ -933,13 +995,88 @@ print_header "STARTING SERVICES"
 print_info "Starting and enabling services..."
 systemctl daemon-reload
 systemctl enable primus-backend
-systemctl start primus-backend
+
+# Test the application manually first
+print_info "Testing application startup..."
+cd /var/www/primus/backend
+source venv/bin/activate
+
+# Test if the application can start
+print_info "Verifying application can run..."
+timeout 10s /var/www/primus/backend/venv/bin/python -c "
+import sys
+sys.path.insert(0, '/var/www/primus/backend')
+try:
+    from main import app
+    print('✅ Application imports successfully')
+except Exception as e:
+    print(f'❌ Application import failed: {e}')
+    sys.exit(1)
+" || print_warning "Application test failed, but continuing..."
+
+# Start the systemd service
+print_info "Starting primus-backend service..."
+
+# First try to start manually to catch any immediate issues
+print_info "Testing manual application startup first..."
+cd /var/www/primus/backend
+source venv/bin/activate
+
+# Quick test to see if app can import and start
+timeout 15s bash -c "
+    source venv/bin/activate
+    python -c 'from main import app; print(\"App imported successfully\")' 2>/dev/null || echo 'App import failed'
+    echo 'Testing basic startup...'
+    python -m uvicorn main:app --host 127.0.0.1 --port 8001 --timeout-keep-alive 5 &
+    UVICORN_PID=\$!
+    sleep 5
+    kill \$UVICORN_PID 2>/dev/null || true
+    echo 'Manual test completed'
+" || print_warning "Manual test had issues, but continuing with systemd service..."
+
+# Now start the systemd service
+if systemctl start primus-backend; then
+    print_status "Systemd service started"
+    
+    # Give it time to fully start
+    sleep 5
+    
+    # Check if it's still running
+    if systemctl is-active --quiet primus-backend; then
+        print_status "Service is running successfully"
+    else
+        print_warning "Service started but may have stopped, checking status..."
+        systemctl status primus-backend --no-pager -l
+    fi
+else
+    print_error "Service failed to start, checking logs..."
+    echo ""
+    echo "=== SYSTEMD SERVICE STATUS ==="
+    systemctl status primus-backend --no-pager -l || true
+    echo ""
+    echo "=== RECENT SERVICE LOGS ==="
+    journalctl -u primus-backend --no-pager -l -n 30 || true
+    echo ""
+fi
+
+# Wait for service to fully start
+sleep 10
+
+# Check service status
+print_info "Checking service status..."
+if systemctl is-active --quiet primus-backend; then
+    print_status "Primus backend service is running"
+else
+    print_warning "Service may have issues, checking status..."
+    systemctl status primus-backend --no-pager -l
+    print_info "Recent logs:"
+    journalctl -u primus-backend --no-pager -l -n 10
+fi
+
+# Restart nginx
 systemctl restart nginx
 
-# Wait for services to start
-sleep 5
-
-print_status "Services started"
+print_status "Services startup completed"
 
 # =============================================================================
 # SSL CERTIFICATE SETUP
@@ -979,9 +1116,21 @@ sleep 3
 if systemctl is-active --quiet primus-backend; then
     print_status "Primus backend service is running"
 else
-    print_error "Primus backend service failed to start"
-    print_info "Checking logs..."
-    journalctl -u primus-backend --no-pager -l -n 20
+    print_error "Primus backend service is not running"
+    print_info "Checking service status and logs..."
+    echo ""
+    echo "=== SERVICE STATUS ==="
+    systemctl status primus-backend --no-pager -l || true
+    echo ""
+    echo "=== RECENT LOGS ==="
+    journalctl -u primus-backend --no-pager -l -n 30 || true
+    echo ""
+    print_info "Common solutions:"
+    print_info "1. Check if all dependencies are installed: pip list"
+    print_info "2. Test manual startup: cd /var/www/primus/backend && source venv/bin/activate && python main.py"
+    print_info "3. Check .env file: cat /var/www/primus/backend/.env"
+    print_info "4. Check file permissions: ls -la /var/www/primus/backend/"
+    echo ""
 fi
 
 if systemctl is-active --quiet postgresql; then
@@ -1076,6 +1225,7 @@ echo ""
 
 print_info "📊 USEFUL COMMANDS:"
 echo "  • Check status: /usr/local/bin/primus-status.sh"
+echo "  • Debug issues: /usr/local/bin/primus-debug.sh"
 echo "  • View logs: journalctl -u primus-backend -f"
 echo "  • Restart backend: sudo systemctl restart primus-backend"
 echo "  • Nginx logs: sudo tail -f /var/log/nginx/error.log"
