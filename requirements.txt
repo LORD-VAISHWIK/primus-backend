@@ -65,6 +65,7 @@ PyJWT==2.8.0
 
 # File Upload & Processing
 python-magic==0.4.29
+# Alternative: file-magic==0.4.1  # Use if python-magic fails
 
 # =============================================================================
 # PRODUCTION & DEPLOYMENT PACKAGES FOR UBUNTU SERVER

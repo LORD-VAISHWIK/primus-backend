@@ -228,7 +228,10 @@ apt install -y \
     tree \
     zip \
     fail2ban \
-    dnsutils
+    dnsutils \
+    libmagic1 \
+    libmagic-dev \
+    file
 
 print_status "System packages installed"
 
@@ -377,7 +380,24 @@ source venv/bin/activate
 # Upgrade pip and install packages
 print_info "Installing Python dependencies..."
 pip install --upgrade pip setuptools wheel
-pip install -r requirements.txt
+
+# Install requirements with error handling for problematic packages
+print_info "Installing Python packages from requirements.txt..."
+if pip install -r requirements.txt; then
+    print_status "All Python packages installed successfully"
+else
+    print_warning "Some packages failed to install, trying alternative approach..."
+    # Try installing without python-magic first
+    pip install -r requirements.txt --ignore-installed python-magic || true
+    
+    # Try alternative file magic package if python-magic fails
+    if ! python3 -c "import magic" 2>/dev/null; then
+        print_info "Installing alternative file-magic package..."
+        pip install file-magic==0.4.1 || true
+    fi
+    
+    print_status "Python packages installation completed (some packages may have been skipped)"
+fi
 
 print_status "Python environment configured"
 
