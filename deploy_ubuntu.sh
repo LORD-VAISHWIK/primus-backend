@@ -363,41 +363,47 @@ mkdir -p /var/log/primus
 print_info "Setting up Primus backend repository..."
 cd /var/www/primus
 
-if [[ -d "backend/.git" ]]; then
-    print_info "Existing repository found, updating..."
-    cd backend
-    
-    # Stash any local changes
-    git stash push -m "Auto-stash before deployment update" || true
-    
-    # Reset to clean state
-    git reset --hard HEAD || true
-    
-    # Pull latest changes
-    git fetch origin main || true
-    git reset --hard origin/main || true
-    
-    print_status "Repository updated"
-    cd ..
+# Always start fresh to avoid any git conflicts
+print_info "Ensuring clean repository setup..."
+
+# Remove any existing backend directory completely
+if [[ -d "backend" ]]; then
+    print_info "Removing existing backend directory..."
+    rm -rf backend
+fi
+
+# Create a clean clone
+print_info "Cloning fresh repository..."
+if git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend; then
+    print_status "Repository cloned successfully"
 else
-    print_info "Cloning fresh repository..."
-    # Remove any existing backend directory that's not a git repo
-    rm -rf backend 2>/dev/null || true
+    print_error "Git clone failed, trying alternative download method..."
     
-    # Clone the repository
-    if git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend; then
-        print_status "Repository cloned successfully"
-    else
-        print_error "Failed to clone repository"
-        print_info "Trying alternative approach..."
-        # Try downloading as zip if git clone fails
-        wget -O backend.zip https://github.com/LORD-VAISHWIK/primus-backend/archive/refs/heads/main.zip
+    # Fallback: download as ZIP
+    if wget -O backend.zip https://github.com/LORD-VAISHWIK/primus-backend/archive/refs/heads/main.zip; then
+        print_info "Extracting repository from ZIP..."
         unzip -q backend.zip
         mv primus-backend-main backend
         rm -f backend.zip
-        print_status "Repository downloaded as zip"
+        print_status "Repository downloaded and extracted successfully"
+    else
+        print_error "Failed to download repository"
+        print_info "Trying curl as final fallback..."
+        curl -L -o backend.zip https://github.com/LORD-VAISHWIK/primus-backend/archive/refs/heads/main.zip
+        unzip -q backend.zip
+        mv primus-backend-main backend
+        rm -f backend.zip
+        print_status "Repository downloaded via curl"
     fi
 fi
+
+# Ensure we have the backend directory
+if [[ ! -d "backend" ]]; then
+    print_error "Failed to set up repository. Please check your internet connection."
+    exit 1
+fi
+
+print_status "Repository setup completed"
 
 # Set up Python virtual environment
 print_info "Setting up Python virtual environment..."
@@ -1322,3 +1328,4 @@ chmod 600 /var/www/primus/DEPLOYMENT_INFO.txt
 chown primus:primus /var/www/primus/DEPLOYMENT_INFO.txt
 
 print_info "Deployment info saved to: /var/www/primus/DEPLOYMENT_INFO.txt"
+
