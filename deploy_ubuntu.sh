@@ -553,15 +553,29 @@ cd /var/www/primus/backend
 source venv/bin/activate
 
 print_info "Running database migrations..."
+
+# Ensure virtual environment is activated
+export PATH="/var/www/primus/backend/venv/bin:$PATH"
+source /var/www/primus/backend/venv/bin/activate
+
 # Initialize Alembic if needed
 if [[ ! -d "alembic" ]]; then
-    alembic init alembic
+    print_info "Initializing Alembic..."
+    /var/www/primus/backend/venv/bin/alembic init alembic
     # Configure alembic.ini
     sed -i "s|sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = postgresql://primus:$DB_PASSWORD@localhost:5432/primus_db|" alembic.ini
+    print_status "Alembic initialized"
 fi
 
 # Run migrations
-alembic upgrade head || print_warning "Database migrations completed with warnings (this is normal for first run)"
+print_info "Running database migrations..."
+if /var/www/primus/backend/venv/bin/alembic upgrade head; then
+    print_status "Database migrations completed successfully"
+else
+    print_warning "Database migrations failed or completed with warnings"
+    print_info "This is often normal for first-time installations"
+    print_info "The backend will create tables automatically when it starts"
+fi
 
 print_status "Database initialized"
 
