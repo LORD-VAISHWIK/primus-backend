@@ -6,10 +6,12 @@
 # This script downloads and runs the automated deployment script
 #
 # USAGE:
-# curl -sSL https://raw.githubusercontent.com/LORD-VAISHWIK/primus-backend/main/install.sh | bash -s yourdomain.com your-email@domain.com
+# curl -sSL https://raw.githubusercontent.com/LORD-VAISHWIK/primus-backend/main/install.sh | bash -s yourdomain.com admin@yourdomain.com
 #
 # EXAMPLE:
 # curl -sSL https://raw.githubusercontent.com/LORD-VAISHWIK/primus-backend/main/install.sh | bash -s primus.example.com admin@example.com
+#
+# NOTE: Email is used for SSL certificate registration only. SMTP will be configured separately if needed.
 # =============================================================================
 
 set -e

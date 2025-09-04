@@ -274,13 +274,15 @@ ALLOWED_EXTENSIONS=jpg,jpeg,png,gif,pdf,doc,docx
 LOG_LEVEL=INFO
 LOG_FILE=/var/log/primus/backend.log
 
-# Email Configuration (UPDATE THESE WITH YOUR SMTP SETTINGS)
-SMTP_SERVER=smtp.gmail.com
+# Email Configuration - TO BE CONFIGURED LATER
+# Email settings will be configured separately after deployment
+SMTP_SERVER=
 SMTP_PORT=587
-SMTP_USERNAME=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
+SMTP_USERNAME=
+SMTP_PASSWORD=
 SMTP_FROM_EMAIL=noreply@$DOMAIN_NAME
 SMTP_FROM_NAME=Primus Gaming Center
+ENABLE_EMAIL_FEATURES=False
 
 # Payment Gateways (UPDATE WITH YOUR KEYS)
 STRIPE_SECRET_KEY=sk_live_your_stripe_key
@@ -293,8 +295,8 @@ FIREBASE_CREDENTIALS_JSON={}
 
 # Feature Flags
 ENABLE_REGISTRATION=True
-ENABLE_PASSWORD_RESET=True
-ENABLE_EMAIL_VERIFICATION=True
+ENABLE_PASSWORD_RESET=False
+ENABLE_EMAIL_VERIFICATION=False
 ENABLE_SOCIAL_LOGIN=False
 ENABLE_PAYMENT_PROCESSING=True
 
@@ -762,8 +764,8 @@ fi
 echo ""
 
 print_info "🔧 IMPORTANT NEXT STEPS:"
-echo "  1. Update email settings in: /var/www/primus/backend/.env"
-echo "  2. Configure payment gateway keys in the .env file"
+echo "  1. Configure payment gateway keys in the .env file (optional)"
+echo "  2. Configure email settings if needed (optional - for password reset/notifications)"
 echo "  3. Deploy your frontend application"
 echo "  4. Set up monitoring and alerting"
 echo "  5. Configure regular backups offsite"
@@ -787,7 +789,8 @@ echo ""
 
 print_warning "🔐 SECURITY REMINDER:"
 echo "  • Database password has been auto-generated and saved in .env"
-echo "  • Update default email/payment credentials in .env file"
+echo "  • Email configuration is disabled by default (enable if needed)"
+echo "  • Update payment credentials in .env file if using payments"
 echo "  • Consider setting up fail2ban for additional security"
 echo "  • Regularly update system packages"
 echo ""

@@ -99,22 +99,14 @@ print_dns_help() {
 }
 
 print_email_help() {
-    echo -e "${CYAN}📧 EMAIL CONFIGURATION HELP${NC}"
-    echo -e "${CYAN}=============================${NC}"
+    echo -e "${CYAN}📧 EMAIL CONFIGURATION${NC}"
+    echo -e "${CYAN}=====================${NC}"
     echo ""
-    echo -e "${YELLOW}Gmail Setup (Recommended):${NC}"
-    echo "1. Enable 2-Factor Authentication on your Google account"
-    echo "2. Go to: https://myaccount.google.com/apppasswords"
-    echo "3. Generate an App Password for 'Mail'"
-    echo "4. Use the 16-character password in your .env file"
+    echo -e "${YELLOW}Email configuration will be skipped during deployment.${NC}"
+    echo -e "${YELLOW}You can configure email settings later if needed.${NC}"
     echo ""
-    echo -e "${YELLOW}Alternative SMTP Providers:${NC}"
-    echo "• SendGrid: smtp.sendgrid.net:587"
-    echo "• Mailgun: smtp.mailgun.org:587"
-    echo "• AWS SES: email-smtp.region.amazonaws.com:587"
-    echo "• Outlook: smtp.live.com:587"
-    echo ""
-    echo -e "${YELLOW}Email will be configured in: /var/www/primus/backend/.env${NC}"
+    echo -e "${YELLOW}The backend will work without email initially.${NC}"
+    echo -e "${YELLOW}Email-dependent features (password reset, notifications) will be disabled.${NC}"
     echo ""
 }
 
@@ -435,26 +427,18 @@ LOG_LEVEL=INFO
 LOG_FILE=/var/log/primus/backend.log
 
 # =============================================================================
-# EMAIL CONFIGURATION - UPDATE THESE WITH YOUR ACTUAL SETTINGS
+# EMAIL CONFIGURATION - TO BE CONFIGURED LATER
 # =============================================================================
-# 
-# FOR GMAIL (Recommended):
-# 1. Enable 2FA on your Google account
-# 2. Generate App Password: https://myaccount.google.com/apppasswords
-# 3. Use your Gmail address and the 16-character app password below
+# Email settings will be configured separately after deployment
+# The backend will work without email initially (email features will be disabled)
 #
-SMTP_SERVER=smtp.gmail.com
+SMTP_SERVER=
 SMTP_PORT=587
-SMTP_USERNAME=$EMAIL
-SMTP_PASSWORD=YOUR_GMAIL_APP_PASSWORD_HERE
+SMTP_USERNAME=
+SMTP_PASSWORD=
 SMTP_FROM_EMAIL=noreply@$DOMAIN_NAME
 SMTP_FROM_NAME=Primus Gaming Center
-
-# Alternative SMTP providers:
-# SendGrid: smtp.sendgrid.net:587
-# Mailgun: smtp.mailgun.org:587
-# AWS SES: email-smtp.region.amazonaws.com:587
-# Outlook: smtp.live.com:587
+ENABLE_EMAIL_FEATURES=False
 
 # =============================================================================
 # PAYMENT GATEWAYS - UPDATE WITH YOUR ACTUAL KEYS
@@ -484,8 +468,8 @@ FIREBASE_PROJECT_ID=your-firebase-project-id
 # FEATURE FLAGS
 # =============================================================================
 ENABLE_REGISTRATION=True
-ENABLE_PASSWORD_RESET=True
-ENABLE_EMAIL_VERIFICATION=True
+ENABLE_PASSWORD_RESET=False
+ENABLE_EMAIL_VERIFICATION=False
 ENABLE_SOCIAL_LOGIN=False
 ENABLE_PAYMENT_PROCESSING=True
 ENABLE_FILE_UPLOADS=True
@@ -996,15 +980,16 @@ echo ""
 
 print_info "🔧 IMPORTANT NEXT STEPS:"
 echo ""
-echo "1. 📧 UPDATE EMAIL SETTINGS:"
+echo "1. 💳 UPDATE PAYMENT GATEWAY KEYS (Optional):"
 echo "   sudo nano /var/www/primus/backend/.env"
-echo "   • Update SMTP_USERNAME with your email"
-echo "   • Update SMTP_PASSWORD with your Gmail App Password"
-echo "   • Get Gmail App Password: https://myaccount.google.com/apppasswords"
-echo ""
-echo "2. 💳 UPDATE PAYMENT GATEWAY KEYS:"
 echo "   • Update STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY"
 echo "   • Update RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+echo ""
+echo "2. 📧 CONFIGURE EMAIL (Optional - for password reset/notifications):"
+echo "   • Update SMTP settings in .env file"
+echo "   • Set ENABLE_EMAIL_FEATURES=True"
+echo "   • Set ENABLE_PASSWORD_RESET=True"
+echo "   • Set ENABLE_EMAIL_VERIFICATION=True"
 echo ""
 echo "3. 🔄 RESTART BACKEND AFTER CHANGES:"
 echo "   sudo systemctl restart primus-backend"
