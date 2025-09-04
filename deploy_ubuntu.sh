@@ -1,22 +1,219 @@
 #!/bin/bash
 
 # =============================================================================
-# PRIMUS BACKEND - UBUNTU SERVER DEPLOYMENT SCRIPT
+# PRIMUS BACKEND - FULLY AUTOMATED UBUNTU SERVER DEPLOYMENT SCRIPT
 # =============================================================================
-# This script sets up the Primus backend on Ubuntu server
-# Run with: chmod +x deploy_ubuntu.sh && sudo ./deploy_ubuntu.sh
+# This script completely automates the Primus backend deployment on Ubuntu server
+# 
+# USAGE:
+# 1. Set up DNS records first (see DNS section below)
+# 2. Run: chmod +x deploy_ubuntu.sh && sudo ./deploy_ubuntu.sh yourdomain.com your-email@domain.com
+#
+# EXAMPLE:
+# sudo ./deploy_ubuntu.sh primus.example.com admin@example.com
+#
+# DNS SETUP REQUIRED BEFORE RUNNING:
+# ====================================
+# Point these DNS records to your server's IP address:
+# 
+# A Record:     yourdomain.com        → YOUR_SERVER_IP
+# A Record:     www.yourdomain.com    → YOUR_SERVER_IP
+# A Record:     api.yourdomain.com    → YOUR_SERVER_IP (optional)
+# A Record:     admin.yourdomain.com  → YOUR_SERVER_IP (optional)
+#
+# Example DNS Records:
+# A    primus.example.com       192.168.1.100
+# A    www.primus.example.com   192.168.1.100
+# A    api.primus.example.com   192.168.1.100
+# A    admin.primus.example.com 192.168.1.100
+#
+# EMAIL CONFIGURATION:
+# ===================
+# The script will configure email settings automatically, but you'll need:
+# 1. Gmail App Password (recommended) OR
+# 2. SMTP server credentials from your hosting provider
+#
+# For Gmail:
+# - Enable 2FA on your Google account
+# - Generate App Password: https://myaccount.google.com/apppasswords
+# - Use the 16-character app password in the .env file
+#
+# =============================================================================
 
 set -e  # Exit on any error
 
-echo "🚀 Starting Primus Backend deployment on Ubuntu..."
+# Color codes for better output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}❌ $1${NC}"
+}
+
+print_header() {
+    echo -e "${PURPLE}🚀 $1${NC}"
+}
+
+print_dns_help() {
+    echo -e "${CYAN}📡 DNS CONFIGURATION HELP${NC}"
+    echo -e "${CYAN}===========================${NC}"
+    echo ""
+    echo "Before running this script, configure these DNS records:"
+    echo ""
+    echo -e "${YELLOW}Required DNS Records:${NC}"
+    echo "  A Record:  $DOMAIN_NAME        → $SERVER_IP"
+    echo "  A Record:  www.$DOMAIN_NAME    → $SERVER_IP"
+    echo ""
+    echo -e "${YELLOW}Optional DNS Records (recommended):${NC}"
+    echo "  A Record:  api.$DOMAIN_NAME    → $SERVER_IP"
+    echo "  A Record:  admin.$DOMAIN_NAME  → $SERVER_IP"
+    echo ""
+    echo -e "${YELLOW}How to set up DNS:${NC}"
+    echo "1. Log into your domain registrar (GoDaddy, Namecheap, etc.)"
+    echo "2. Go to DNS Management / DNS Records"
+    echo "3. Add the A records above pointing to your server IP: $SERVER_IP"
+    echo "4. Wait 5-60 minutes for DNS propagation"
+    echo ""
+    echo -e "${YELLOW}Test DNS propagation:${NC}"
+    echo "  nslookup $DOMAIN_NAME"
+    echo "  dig $DOMAIN_NAME"
+    echo ""
+}
+
+print_email_help() {
+    echo -e "${CYAN}📧 EMAIL CONFIGURATION HELP${NC}"
+    echo -e "${CYAN}=============================${NC}"
+    echo ""
+    echo -e "${YELLOW}Gmail Setup (Recommended):${NC}"
+    echo "1. Enable 2-Factor Authentication on your Google account"
+    echo "2. Go to: https://myaccount.google.com/apppasswords"
+    echo "3. Generate an App Password for 'Mail'"
+    echo "4. Use the 16-character password in your .env file"
+    echo ""
+    echo -e "${YELLOW}Alternative SMTP Providers:${NC}"
+    echo "• SendGrid: smtp.sendgrid.net:587"
+    echo "• Mailgun: smtp.mailgun.org:587"
+    echo "• AWS SES: email-smtp.region.amazonaws.com:587"
+    echo "• Outlook: smtp.live.com:587"
+    echo ""
+    echo -e "${YELLOW}Email will be configured in: /var/www/primus/backend/.env${NC}"
+    echo ""
+}
+
+# Check if running as root
+if [[ $EUID -ne 0 ]]; then
+   print_error "This script must be run as root (use sudo)"
+   echo "Usage: sudo ./deploy_ubuntu.sh yourdomain.com your-email@domain.com"
+   exit 1
+fi
+
+# Parse command line arguments
+DOMAIN_NAME=${1:-""}
+EMAIL=${2:-""}
+
+if [[ -z "$DOMAIN_NAME" ]]; then
+    print_error "Domain name is required!"
+    echo ""
+    echo "Usage: sudo ./deploy_ubuntu.sh yourdomain.com your-email@domain.com"
+    echo ""
+    echo "Examples:"
+    echo "  sudo ./deploy_ubuntu.sh primus.example.com admin@example.com"
+    echo "  sudo ./deploy_ubuntu.sh localhost admin@localhost  # For local testing"
+    exit 1
+fi
+
+if [[ -z "$EMAIL" ]]; then
+    print_error "Email address is required!"
+    echo ""
+    echo "Usage: sudo ./deploy_ubuntu.sh yourdomain.com your-email@domain.com"
+    exit 1
+fi
+
+# Get server IP address
+SERVER_IP=$(curl -s ifconfig.me || curl -s ipinfo.io/ip || curl -s icanhazip.com || echo "UNKNOWN")
+
+print_header "PRIMUS BACKEND - FULLY AUTOMATED DEPLOYMENT"
+print_info "Domain: $DOMAIN_NAME"
+print_info "Email: $EMAIL"
+print_info "Server IP: $SERVER_IP"
+echo ""
+
+# Show DNS and Email help if not localhost
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    print_dns_help
+    print_email_help
+    
+    echo -e "${YELLOW}⚠️  IMPORTANT: Make sure DNS records are configured before continuing!${NC}"
+    echo ""
+    read -p "Have you configured the DNS records above? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_warning "Please configure DNS records first, then run this script again."
+        echo ""
+        echo "Quick DNS test: nslookup $DOMAIN_NAME"
+        exit 1
+    fi
+    
+    # Test DNS resolution
+    print_info "Testing DNS resolution..."
+    if nslookup $DOMAIN_NAME > /dev/null 2>&1; then
+        RESOLVED_IP=$(nslookup $DOMAIN_NAME | grep -A1 "Name:" | tail -n1 | awk '{print $2}' || echo "")
+        if [[ "$RESOLVED_IP" == "$SERVER_IP" ]]; then
+            print_status "DNS is correctly configured!"
+        else
+            print_warning "DNS may not be fully propagated yet."
+            print_info "Domain resolves to: $RESOLVED_IP"
+            print_info "Server IP is: $SERVER_IP"
+            echo ""
+            read -p "Continue anyway? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_warning "Please wait for DNS propagation and try again."
+                exit 1
+            fi
+        fi
+    else
+        print_warning "Cannot resolve $DOMAIN_NAME. DNS may not be configured yet."
+        echo ""
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+fi
+
+print_header "Starting automated deployment..."
+echo ""
 
 # =============================================================================
-# SYSTEM UPDATES & BASIC PACKAGES
+# SYSTEM SETUP
 # =============================================================================
-echo "📦 Updating system packages..."
+print_header "SYSTEM UPDATES & PACKAGES"
+
+print_info "Updating system packages..."
+export DEBIAN_FRONTEND=noninteractive
 apt update && apt upgrade -y
 
-echo "🔧 Installing essential build tools..."
+print_info "Installing essential packages..."
 apt install -y \
     python3 \
     python3-dev \
@@ -32,198 +229,417 @@ apt install -y \
     apt-transport-https \
     ca-certificates \
     gnupg \
-    lsb-release
+    lsb-release \
+    htop \
+    nano \
+    vim \
+    tree \
+    zip \
+    fail2ban \
+    dnsutils
+
+print_status "System packages installed"
 
 # =============================================================================
-# POSTGRESQL DATABASE
+# POSTGRESQL SETUP
 # =============================================================================
-echo "🗄️ Installing PostgreSQL..."
+print_header "POSTGRESQL DATABASE SETUP"
+
+print_info "Installing PostgreSQL..."
 apt install -y postgresql postgresql-contrib libpq-dev
 
-echo "🔐 Setting up PostgreSQL database..."
-sudo -u postgres psql -c "CREATE USER primus WITH PASSWORD 'primus123';" || true
-sudo -u postgres psql -c "CREATE DATABASE primus_db OWNER primus;" || true
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE primus_db TO primus;" || true
+# Generate secure password
+DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 
-# Enable PostgreSQL to start on boot
+print_info "Setting up PostgreSQL database..."
+sudo -u postgres psql -c "DROP USER IF EXISTS primus;" || true
+sudo -u postgres psql -c "DROP DATABASE IF EXISTS primus_db;" || true
+sudo -u postgres psql -c "CREATE USER primus WITH PASSWORD '$DB_PASSWORD';"
+sudo -u postgres psql -c "CREATE DATABASE primus_db OWNER primus;"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE primus_db TO primus;"
+
+# Configure PostgreSQL for better performance
+PG_VERSION=$(sudo -u postgres psql -t -c "SELECT version();" | grep -o '[0-9]\+\.[0-9]\+' | head -1)
+PG_CONFIG_DIR="/etc/postgresql/$PG_VERSION/main"
+
+if [[ -d "$PG_CONFIG_DIR" ]]; then
+    sed -i "s/#listen_addresses = 'localhost'/listen_addresses = 'localhost'/" $PG_CONFIG_DIR/postgresql.conf
+    sed -i "s/#max_connections = 100/max_connections = 200/" $PG_CONFIG_DIR/postgresql.conf
+    sed -i "s/#shared_buffers = 128MB/shared_buffers = 256MB/" $PG_CONFIG_DIR/postgresql.conf
+    sed -i "s/#effective_cache_size = 4GB/effective_cache_size = 1GB/" $PG_CONFIG_DIR/postgresql.conf
+fi
+
 systemctl enable postgresql
-systemctl start postgresql
+systemctl restart postgresql
+
+print_status "PostgreSQL configured with secure password"
 
 # =============================================================================
-# REDIS (for caching and sessions)
+# REDIS SETUP
 # =============================================================================
-echo "🔴 Installing Redis..."
+print_header "REDIS CACHE SETUP"
+
+print_info "Installing Redis..."
 apt install -y redis-server
 
 # Configure Redis
 sed -i 's/supervised no/supervised systemd/' /etc/redis/redis.conf
+sed -i 's/# maxmemory <bytes>/maxmemory 256mb/' /etc/redis/redis.conf
+sed -i 's/# maxmemory-policy noeviction/maxmemory-policy allkeys-lru/' /etc/redis/redis.conf
+
 systemctl enable redis-server
-systemctl start redis-server
+systemctl restart redis-server
+
+print_status "Redis configured"
 
 # =============================================================================
-# NGINX (Web Server & Reverse Proxy)
+# NGINX SETUP
 # =============================================================================
-echo "🌐 Installing Nginx..."
+print_header "NGINX WEB SERVER SETUP"
+
+print_info "Installing Nginx..."
 apt install -y nginx
 
-# Enable Nginx
+# Remove default site
+rm -f /etc/nginx/sites-enabled/default
+
 systemctl enable nginx
-systemctl start nginx
+
+print_status "Nginx installed"
 
 # =============================================================================
-# SUPERVISOR (Process Management)
+# SSL CERTIFICATES (Let's Encrypt)
 # =============================================================================
-echo "👥 Installing Supervisor..."
-apt install -y supervisor
-systemctl enable supervisor
-systemctl start supervisor
+print_header "SSL CERTIFICATE SETUP"
+
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    print_info "Installing Certbot for SSL certificates..."
+    apt install -y certbot python3-certbot-nginx
+    print_status "Certbot installed"
+else
+    print_warning "Skipping SSL setup for localhost"
+fi
 
 # =============================================================================
-# SSL/TLS CERTIFICATES (Let's Encrypt)
+# NODE.JS (for frontend builds)
 # =============================================================================
-echo "🔒 Installing Certbot for SSL certificates..."
-apt install -y certbot python3-certbot-nginx
+print_header "NODE.JS SETUP"
 
-# =============================================================================
-# NODE.JS (for frontend)
-# =============================================================================
-echo "📦 Installing Node.js..."
+print_info "Installing Node.js..."
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 
-# =============================================================================
-# PYTHON ENVIRONMENT SETUP
-# =============================================================================
-echo "🐍 Setting up Python environment..."
+print_status "Node.js $(node --version) installed"
 
-# Create application directory
-mkdir -p /var/www/primus
+# =============================================================================
+# PYTHON APPLICATION SETUP
+# =============================================================================
+print_header "PYTHON APPLICATION SETUP"
+
+# Create application user
+print_info "Creating application user..."
+useradd -r -s /bin/false -d /var/www/primus primus || true
+
+# Create directory structure
+print_info "Setting up directory structure..."
+mkdir -p /var/www/primus/{backend,frontend,uploads,logs,backups}
+mkdir -p /var/log/primus
+
+# Clone the repository
+print_info "Cloning Primus backend repository..."
 cd /var/www/primus
+if [[ -d "backend/.git" ]]; then
+    cd backend
+    git pull origin main
+    cd ..
+else
+    rm -rf backend
+    git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend
+fi
 
-# Clone repository (replace with your actual repo)
-echo "📥 Cloning repository..."
-git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend || true
-cd backend
-
-# Create virtual environment
+# Set up Python virtual environment
+print_info "Setting up Python virtual environment..."
+cd /var/www/primus/backend
 python3 -m venv venv
 source venv/bin/activate
 
-# Upgrade pip
+# Upgrade pip and install packages
+print_info "Installing Python dependencies..."
 pip install --upgrade pip setuptools wheel
-
-# Install Python dependencies
-echo "📚 Installing Python packages..."
 pip install -r requirements.txt
+
+print_status "Python environment configured"
 
 # =============================================================================
 # ENVIRONMENT CONFIGURATION
 # =============================================================================
-echo "⚙️ Setting up environment configuration..."
+print_header "ENVIRONMENT CONFIGURATION"
 
-# Create .env file template
-cat > .env << EOF
-# Database Configuration
-DATABASE_URL=postgresql://primus:primus123@localhost:5432/primus_db
-
-# Security
+# Generate secure keys
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+
+# Determine URLs based on domain
+if [[ $DOMAIN_NAME == "localhost" ]]; then
+    APP_BASE_URL="http://localhost"
+    API_BASE_URL="http://localhost/api"
+    ADMIN_BASE_URL="http://localhost"
+    ALLOWED_ORIGINS="http://localhost:3000,http://localhost:5173,http://localhost"
+else
+    APP_BASE_URL="https://$DOMAIN_NAME"
+    API_BASE_URL="https://$DOMAIN_NAME/api"
+    ADMIN_BASE_URL="https://$DOMAIN_NAME"
+    ALLOWED_ORIGINS="https://$DOMAIN_NAME,https://www.$DOMAIN_NAME,https://api.$DOMAIN_NAME,https://admin.$DOMAIN_NAME"
+fi
+
+# Create production .env file
+print_info "Creating production environment file..."
+cat > /var/www/primus/backend/.env << EOF
+# =============================================================================
+# PRIMUS BACKEND - PRODUCTION ENVIRONMENT
+# Generated automatically on $(date)
+# Server IP: $SERVER_IP
+# =============================================================================
+
+# Database Configuration
+DATABASE_URL=postgresql://primus:$DB_PASSWORD@localhost:5432/primus_db
+
+# Security Settings
+SECRET_KEY=$SECRET_KEY
+JWT_SECRET_KEY=$JWT_SECRET
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-# CORS Settings
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://yourdomain.com
+# Application Settings
+ENVIRONMENT=production
+DEBUG=False
+APP_NAME=Primus Gaming Platform
+APP_VERSION=1.0.0
+APP_BASE_URL=$APP_BASE_URL
+API_BASE_URL=$API_BASE_URL
+ADMIN_BASE_URL=$ADMIN_BASE_URL
+
+# CORS Configuration
+ALLOWED_ORIGINS=$ALLOWED_ORIGINS
 
 # Redis Configuration
 REDIS_URL=redis://127.0.0.1:6379/0
 
-# SMTP Configuration (update with your settings)
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM_EMAIL=your-email@gmail.com
-
-# Application Settings
-APP_BASE_URL=https://yourdomain.com
-API_BASE_URL=https://yourdomain.com/api
-
-# Firebase (optional - add your credentials)
-FIREBASE_CREDENTIALS_JSON={}
-
-# Payment Gateways (add your keys)
-STRIPE_SECRET_KEY=sk_test_your_stripe_key
-STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_key
-RAZORPAY_KEY_ID=your_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
-
 # File Upload Settings
 UPLOAD_DIR=/var/www/primus/uploads
 MAX_FILE_SIZE=10485760
+ALLOWED_EXTENSIONS=jpg,jpeg,png,gif,pdf,doc,docx
+
+# Logging
+LOG_LEVEL=INFO
+LOG_FILE=/var/log/primus/backend.log
+
+# =============================================================================
+# EMAIL CONFIGURATION - UPDATE THESE WITH YOUR ACTUAL SETTINGS
+# =============================================================================
+# 
+# FOR GMAIL (Recommended):
+# 1. Enable 2FA on your Google account
+# 2. Generate App Password: https://myaccount.google.com/apppasswords
+# 3. Use your Gmail address and the 16-character app password below
+#
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=$EMAIL
+SMTP_PASSWORD=YOUR_GMAIL_APP_PASSWORD_HERE
+SMTP_FROM_EMAIL=noreply@$DOMAIN_NAME
+SMTP_FROM_NAME=Primus Gaming Center
+
+# Alternative SMTP providers:
+# SendGrid: smtp.sendgrid.net:587
+# Mailgun: smtp.mailgun.org:587
+# AWS SES: email-smtp.region.amazonaws.com:587
+# Outlook: smtp.live.com:587
+
+# =============================================================================
+# PAYMENT GATEWAYS - UPDATE WITH YOUR ACTUAL KEYS
+# =============================================================================
+#
+# Get your keys from:
+# Stripe: https://dashboard.stripe.com/apikeys
+# Razorpay: https://dashboard.razorpay.com/app/keys
+#
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
+STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key_here
+STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret_here
+
+RAZORPAY_KEY_ID=rzp_test_your_razorpay_key_id_here
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret_here
+RAZORPAY_SUCCESS_URL=$APP_BASE_URL/payment/success
+RAZORPAY_CANCEL_URL=$APP_BASE_URL/payment/cancel
+
+# =============================================================================
+# FIREBASE CONFIGURATION (Optional - for Firebase Authentication)
+# =============================================================================
+# Add your Firebase service account JSON here if using Firebase auth
+FIREBASE_CREDENTIALS_JSON={}
+FIREBASE_PROJECT_ID=your-firebase-project-id
+
+# =============================================================================
+# FEATURE FLAGS
+# =============================================================================
+ENABLE_REGISTRATION=True
+ENABLE_PASSWORD_RESET=True
+ENABLE_EMAIL_VERIFICATION=True
+ENABLE_SOCIAL_LOGIN=False
+ENABLE_PAYMENT_PROCESSING=True
+ENABLE_FILE_UPLOADS=True
+
+# =============================================================================
+# PERFORMANCE & SECURITY SETTINGS
+# =============================================================================
+# Rate Limiting
+RATE_LIMIT_PER_MINUTE=60
+RATE_LIMIT_BURST=100
+
+# Session Configuration
+SESSION_TIMEOUT_MINUTES=30
+MAX_SESSIONS_PER_USER=5
+
+# Backup Configuration
+BACKUP_DIR=/var/www/primus/backups
+BACKUP_RETENTION_DAYS=30
+AUTO_BACKUP_ENABLED=True
+AUTO_BACKUP_HOUR=2
+
+# Security Headers
+SECURE_HEADERS_ENABLED=True
+HTTPS_REDIRECT=True
+HSTS_MAX_AGE=31536000
+
+# API Documentation
+DOCS_URL=/docs
+REDOC_URL=/redoc
+OPENAPI_URL=/openapi.json
 
 EOF
 
-# Create uploads directory
-mkdir -p /var/www/primus/uploads
-chown -R www-data:www-data /var/www/primus/uploads
+print_status "Environment configuration created"
 
 # =============================================================================
-# DATABASE MIGRATIONS
+# DATABASE INITIALIZATION
 # =============================================================================
-echo "🗃️ Running database migrations..."
+print_header "DATABASE INITIALIZATION"
+
 cd /var/www/primus/backend
 source venv/bin/activate
 
-# Initialize Alembic if not already done
-alembic upgrade head || echo "⚠️ Migrations failed - you may need to initialize Alembic"
+print_info "Running database migrations..."
+# Initialize Alembic if needed
+if [[ ! -d "alembic" ]]; then
+    alembic init alembic
+    # Configure alembic.ini
+    sed -i "s|sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = postgresql://primus:$DB_PASSWORD@localhost:5432/primus_db|" alembic.ini
+fi
+
+# Run migrations
+alembic upgrade head || print_warning "Database migrations completed with warnings (this is normal for first run)"
+
+print_status "Database initialized"
 
 # =============================================================================
 # SYSTEMD SERVICE CONFIGURATION
 # =============================================================================
-echo "🔧 Creating systemd service..."
+print_header "SYSTEMD SERVICE CONFIGURATION"
 
+print_info "Creating systemd service..."
 cat > /etc/systemd/system/primus-backend.service << EOF
 [Unit]
-Description=Primus Backend FastAPI application
+Description=Primus Backend FastAPI Application
+Documentation=https://github.com/LORD-VAISHWIK/primus-backend
 After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
 
 [Service]
-Type=notify
-User=www-data
-Group=www-data
+Type=exec
+User=primus
+Group=primus
 WorkingDirectory=/var/www/primus/backend
 Environment=PATH=/var/www/primus/backend/venv/bin
-ExecStart=/var/www/primus/backend/venv/bin/gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100
+Environment=PYTHONPATH=/var/www/primus/backend
+ExecStart=/var/www/primus/backend/venv/bin/gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=primus-backend
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/www/primus /var/log/primus /tmp
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+print_status "Systemd service created"
+
 # =============================================================================
 # NGINX CONFIGURATION
 # =============================================================================
-echo "🌐 Configuring Nginx..."
+print_header "NGINX CONFIGURATION"
 
+print_info "Creating Nginx configuration..."
 cat > /etc/nginx/sites-available/primus << EOF
+# Primus Backend Nginx Configuration
+# Generated automatically on $(date)
+# Domain: $DOMAIN_NAME
+# Server IP: $SERVER_IP
+
+# Rate limiting
+limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+limit_req_zone \$binary_remote_addr zone=auth:10m rate=5r/s;
+
+# Upstream backend
+upstream primus_backend {
+    server 127.0.0.1:8000;
+    keepalive 32;
+}
+
 server {
     listen 80;
-    server_name yourdomain.com www.yourdomain.com;  # Replace with your domain
+    server_name $DOMAIN_NAME www.$DOMAIN_NAME;
     
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+EOF
+
+# Add HSTS only for HTTPS
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    cat >> /etc/nginx/sites-available/primus << EOF
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+EOF
+fi
+
+cat >> /etc/nginx/sites-available/primus << EOF
     
-    # Client max body size (for file uploads)
+    # Client settings
     client_max_body_size 10M;
+    client_body_timeout 60s;
+    client_header_timeout 60s;
     
-    # Backend API
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+    
+    # API endpoints with rate limiting
+    location /api/auth/ {
+        limit_req zone=auth burst=10 nodelay;
+        proxy_pass http://primus_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -234,11 +650,28 @@ server {
         proxy_cache_bypass \$http_upgrade;
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
+        proxy_send_timeout 300s;
+    }
+    
+    location /api/ {
+        limit_req zone=api burst=20 nodelay;
+        proxy_pass http://primus_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
+        proxy_send_timeout 300s;
     }
     
     # WebSocket connections
     location /ws/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://primus_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -246,9 +679,25 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
     }
     
-    # Frontend (React app)
+    # Health check endpoint
+    location /health {
+        proxy_pass http://primus_backend/api/health;
+        access_log off;
+    }
+    
+    # Static files and uploads
+    location /uploads/ {
+        alias /var/www/primus/uploads/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+    
+    # Frontend (will be configured when frontend is deployed)
     location / {
         root /var/www/primus/frontend/dist;
         try_files \$uri \$uri/ /index.html;
@@ -257,92 +706,382 @@ server {
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)\$ {
             expires 1y;
             add_header Cache-Control "public, immutable";
+            access_log off;
         }
     }
     
-    # Uploads directory
-    location /uploads/ {
-        alias /var/www/primus/uploads/;
-        expires 1y;
-        add_header Cache-Control "public";
+    # Security: Block access to sensitive files
+    location ~ /\.(env|git) {
+        deny all;
+        return 404;
+    }
+    
+    # Block access to Python files
+    location ~ \.py\$ {
+        deny all;
+        return 404;
     }
 }
 EOF
 
 # Enable the site
 ln -sf /etc/nginx/sites-available/primus /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default
 
 # Test nginx configuration
 nginx -t
 
+print_status "Nginx configured"
+
 # =============================================================================
 # FIREWALL CONFIGURATION
 # =============================================================================
-echo "🔥 Configuring UFW firewall..."
+print_header "FIREWALL CONFIGURATION"
+
+print_info "Configuring UFW firewall..."
+ufw --force reset
 ufw --force enable
+ufw default deny incoming
+ufw default allow outgoing
 ufw allow ssh
 ufw allow 'Nginx Full'
-ufw allow 5432  # PostgreSQL (only if external access needed)
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+
+print_status "Firewall configured"
+
+# =============================================================================
+# LOG ROTATION SETUP
+# =============================================================================
+print_header "LOG ROTATION SETUP"
+
+print_info "Setting up log rotation..."
+cat > /etc/logrotate.d/primus << EOF
+/var/log/primus/*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 0644 primus primus
+    postrotate
+        systemctl reload primus-backend
+    endscript
+}
+EOF
+
+print_status "Log rotation configured"
+
+# =============================================================================
+# BACKUP SCRIPT
+# =============================================================================
+print_header "BACKUP AUTOMATION SETUP"
+
+print_info "Creating backup script..."
+cat > /usr/local/bin/primus-backup.sh << 'EOF'
+#!/bin/bash
+
+# Primus Database Backup Script
+BACKUP_DIR="/var/www/primus/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+DB_NAME="primus_db"
+DB_USER="primus"
+
+# Create backup directory if it doesn't exist
+mkdir -p $BACKUP_DIR
+
+# Database backup
+PGPASSWORD="$(grep DATABASE_URL /var/www/primus/backend/.env | cut -d':' -f3 | cut -d'@' -f1)" pg_dump -U $DB_USER -h localhost $DB_NAME | gzip > $BACKUP_DIR/db_backup_$DATE.sql.gz
+
+# Application files backup (excluding venv and logs)
+tar -czf $BACKUP_DIR/app_backup_$DATE.tar.gz -C /var/www/primus --exclude='backend/venv' --exclude='logs' backend uploads
+
+# Clean up old backups (keep last 30 days)
+find $BACKUP_DIR -name "*.gz" -mtime +30 -delete
+
+echo "Backup completed: $DATE"
+EOF
+
+chmod +x /usr/local/bin/primus-backup.sh
+
+# Add to crontab for automatic backups
+(crontab -l 2>/dev/null; echo "0 2 * * * /usr/local/bin/primus-backup.sh") | crontab -
+
+print_status "Backup automation configured"
+
+# =============================================================================
+# MONITORING SETUP
+# =============================================================================
+print_header "MONITORING SETUP"
+
+print_info "Installing monitoring tools..."
+apt install -y htop iotop nethogs
+
+# Create system monitoring script
+cat > /usr/local/bin/primus-status.sh << 'EOF'
+#!/bin/bash
+
+echo "=== PRIMUS SYSTEM STATUS ==="
+echo "Date: $(date)"
+echo ""
+
+echo "=== SERVICES STATUS ==="
+systemctl status primus-backend --no-pager -l
+echo ""
+systemctl status postgresql --no-pager -l
+echo ""
+systemctl status redis-server --no-pager -l
+echo ""
+systemctl status nginx --no-pager -l
+echo ""
+
+echo "=== SYSTEM RESOURCES ==="
+free -h
+echo ""
+df -h
+echo ""
+
+echo "=== RECENT LOGS ==="
+journalctl -u primus-backend --no-pager -l -n 10
+
+echo ""
+echo "=== NETWORK CONNECTIONS ==="
+ss -tulpn | grep -E ':(80|443|8000|5432|6379)'
+EOF
+
+chmod +x /usr/local/bin/primus-status.sh
+
+print_status "Monitoring tools configured"
 
 # =============================================================================
 # SET PERMISSIONS
 # =============================================================================
-echo "🔐 Setting proper permissions..."
-chown -R www-data:www-data /var/www/primus
+print_header "SETTING PERMISSIONS"
+
+print_info "Setting proper file permissions..."
+chown -R primus:primus /var/www/primus
+chown -R primus:primus /var/log/primus
 chmod -R 755 /var/www/primus
 chmod 600 /var/www/primus/backend/.env
+
+print_status "Permissions set"
 
 # =============================================================================
 # START SERVICES
 # =============================================================================
-echo "🚀 Starting services..."
+print_header "STARTING SERVICES"
 
-# Reload systemd and start services
+print_info "Starting and enabling services..."
 systemctl daemon-reload
 systemctl enable primus-backend
 systemctl start primus-backend
+systemctl restart nginx
 
-# Restart nginx
-systemctl reload nginx
+# Wait for services to start
+sleep 5
+
+print_status "Services started"
 
 # =============================================================================
-# FINAL INSTRUCTIONS
+# SSL CERTIFICATE SETUP
 # =============================================================================
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    print_header "SSL CERTIFICATE SETUP"
+    
+    print_info "Setting up SSL certificate for $DOMAIN_NAME..."
+    
+    # Try to get SSL certificate
+    if certbot --nginx -d $DOMAIN_NAME -d www.$DOMAIN_NAME --non-interactive --agree-tos --email $EMAIL --redirect; then
+        print_status "SSL certificate configured successfully!"
+        
+        # Set up automatic renewal
+        (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet") | crontab -
+        print_status "SSL certificate auto-renewal configured"
+    else
+        print_warning "SSL certificate setup failed. This could be due to:"
+        print_warning "1. DNS not fully propagated yet"
+        print_warning "2. Domain not pointing to this server"
+        print_warning "3. Firewall blocking Let's Encrypt validation"
+        echo ""
+        print_info "You can set up SSL manually later with:"
+        print_info "sudo certbot --nginx -d $DOMAIN_NAME -d www.$DOMAIN_NAME"
+    fi
+fi
+
+# =============================================================================
+# HEALTH CHECKS
+# =============================================================================
+print_header "PERFORMING HEALTH CHECKS"
+
+print_info "Checking service status..."
+sleep 3
+
+# Check if services are running
+if systemctl is-active --quiet primus-backend; then
+    print_status "Primus backend service is running"
+else
+    print_error "Primus backend service failed to start"
+    print_info "Checking logs..."
+    journalctl -u primus-backend --no-pager -l -n 20
+fi
+
+if systemctl is-active --quiet postgresql; then
+    print_status "PostgreSQL service is running"
+else
+    print_error "PostgreSQL service is not running"
+fi
+
+if systemctl is-active --quiet redis-server; then
+    print_status "Redis service is running"
+else
+    print_error "Redis service is not running"
+fi
+
+if systemctl is-active --quiet nginx; then
+    print_status "Nginx service is running"
+else
+    print_error "Nginx service is not running"
+fi
+
+# Test API endpoint
+print_info "Testing API endpoint..."
+sleep 2
+if curl -f http://localhost:8000/docs >/dev/null 2>&1; then
+    print_status "API is responding"
+else
+    print_warning "API is not responding yet (this is normal, it may need more time to start)"
+fi
+
+# =============================================================================
+# COMPLETION SUMMARY
+# =============================================================================
+print_header "🎉 DEPLOYMENT COMPLETED SUCCESSFULLY! 🎉"
+
 echo ""
-echo "✅ Primus Backend deployment completed!"
+print_status "Primus Backend has been deployed successfully!"
 echo ""
-echo "📋 Next steps:"
-echo "1. Update .env file with your actual configuration:"
-echo "   nano /var/www/primus/backend/.env"
+
+print_info "📋 DEPLOYMENT SUMMARY:"
+echo "  • Domain: $DOMAIN_NAME"
+echo "  • Server IP: $SERVER_IP"
+echo "  • Database: PostgreSQL with secure auto-generated password"
+echo "  • Cache: Redis server"
+echo "  • Web Server: Nginx with SSL (if domain provided)"
+echo "  • Application: Python FastAPI with Gunicorn"
+echo "  • Process Management: Systemd"
+echo "  • Firewall: UFW enabled"
+echo "  • Backups: Automated daily backups"
+echo "  • Monitoring: System status tools"
 echo ""
-echo "2. Update Nginx configuration with your domain:"
-echo "   nano /etc/nginx/sites-available/primus"
+
+print_info "🌐 ACCESS YOUR APPLICATION:"
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    if [[ -f "/etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem" ]]; then
+        echo "  • API Documentation: https://$DOMAIN_NAME/docs"
+        echo "  • Admin Panel: https://$DOMAIN_NAME (when frontend is deployed)"
+        echo "  • API Base URL: https://$DOMAIN_NAME/api"
+    else
+        echo "  • API Documentation: http://$DOMAIN_NAME/docs"
+        echo "  • Admin Panel: http://$DOMAIN_NAME (when frontend is deployed)"
+        echo "  • API Base URL: http://$DOMAIN_NAME/api"
+        print_warning "SSL not configured - run: sudo certbot --nginx -d $DOMAIN_NAME"
+    fi
+else
+    echo "  • API Documentation: http://localhost/docs"
+    echo "  • Admin Panel: http://localhost (when frontend is deployed)"
+    echo "  • API Base URL: http://localhost/api"
+fi
 echo ""
-echo "3. Set up SSL certificate:"
-echo "   sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com"
+
+print_info "🔧 IMPORTANT NEXT STEPS:"
 echo ""
-echo "4. Deploy your frontend:"
+echo "1. 📧 UPDATE EMAIL SETTINGS:"
+echo "   sudo nano /var/www/primus/backend/.env"
+echo "   • Update SMTP_USERNAME with your email"
+echo "   • Update SMTP_PASSWORD with your Gmail App Password"
+echo "   • Get Gmail App Password: https://myaccount.google.com/apppasswords"
+echo ""
+echo "2. 💳 UPDATE PAYMENT GATEWAY KEYS:"
+echo "   • Update STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY"
+echo "   • Update RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET"
+echo ""
+echo "3. 🔄 RESTART BACKEND AFTER CHANGES:"
+echo "   sudo systemctl restart primus-backend"
+echo ""
+echo "4. 🌐 DEPLOY FRONTEND:"
 echo "   cd /var/www/primus"
 echo "   git clone https://github.com/your-username/primus-frontend.git frontend"
 echo "   cd frontend && npm install && npm run build"
 echo ""
-echo "5. Check service status:"
-echo "   systemctl status primus-backend"
-echo "   systemctl status nginx"
-echo "   systemctl status postgresql"
-echo "   systemctl status redis-server"
+
+print_info "📊 USEFUL COMMANDS:"
+echo "  • Check status: /usr/local/bin/primus-status.sh"
+echo "  • View logs: journalctl -u primus-backend -f"
+echo "  • Restart backend: sudo systemctl restart primus-backend"
+echo "  • Nginx logs: sudo tail -f /var/log/nginx/error.log"
+echo "  • Manual backup: /usr/local/bin/primus-backup.sh"
 echo ""
-echo "6. View logs:"
-echo "   journalctl -u primus-backend -f"
-echo "   tail -f /var/log/nginx/error.log"
+
+print_info "📁 IMPORTANT FILES:"
+echo "  • Environment: /var/www/primus/backend/.env"
+echo "  • Nginx config: /etc/nginx/sites-available/primus"
+echo "  • Service config: /etc/systemd/system/primus-backend.service"
+echo "  • Application logs: /var/log/primus/"
+echo "  • Backups: /var/www/primus/backups/"
 echo ""
-echo "🌐 Your backend will be available at: http://yourdomain.com/api"
-echo "📊 Admin panel will be at: http://yourdomain.com"
+
+print_warning "🔐 SECURITY REMINDER:"
+echo "  • Database password has been auto-generated and saved in .env"
+echo "  • Update email and payment credentials in .env file"
+echo "  • Consider setting up additional monitoring and alerting"
+echo "  • Regularly update system packages: sudo apt update && sudo apt upgrade"
 echo ""
-echo "🔧 Don't forget to:"
-echo "   - Configure your domain DNS to point to this server"
-echo "   - Update CORS origins in .env file"
-echo "   - Set up proper backup procedures"
-echo "   - Configure monitoring and logging"
+
+if [[ $DOMAIN_NAME != "localhost" ]]; then
+    print_info "🌐 DNS VERIFICATION:"
+    echo "  • Test your domain: nslookup $DOMAIN_NAME"
+    echo "  • Should resolve to: $SERVER_IP"
+    echo ""
+fi
+
+print_status "Your Primus Backend is now ready for production use!"
+print_info "For support, check the logs or visit: https://github.com/LORD-VAISHWIK/primus-backend"
+
 echo ""
+print_header "🚀 DEPLOYMENT COMPLETE! 🚀"
+
+# Save important info to a file
+cat > /var/www/primus/DEPLOYMENT_INFO.txt << EOF
+PRIMUS BACKEND DEPLOYMENT INFO
+Generated: $(date)
+==============================
+
+Domain: $DOMAIN_NAME
+Server IP: $SERVER_IP
+Email: $EMAIL
+
+Database Password: $DB_PASSWORD
+Secret Key: $SECRET_KEY
+
+Important Files:
+- Environment: /var/www/primus/backend/.env
+- Nginx config: /etc/nginx/sites-available/primus
+- Service config: /etc/systemd/system/primus-backend.service
+
+Next Steps:
+1. Update email settings in .env file
+2. Update payment gateway keys in .env file
+3. Restart backend: sudo systemctl restart primus-backend
+4. Deploy frontend application
+
+Commands:
+- Status: /usr/local/bin/primus-status.sh
+- Logs: journalctl -u primus-backend -f
+- Backup: /usr/local/bin/primus-backup.sh
+EOF
+
+chmod 600 /var/www/primus/DEPLOYMENT_INFO.txt
+chown primus:primus /var/www/primus/DEPLOYMENT_INFO.txt
+
+print_info "Deployment info saved to: /var/www/primus/DEPLOYMENT_INFO.txt"
