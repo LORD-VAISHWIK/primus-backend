@@ -1,6 +1,6 @@
-# 🌐 DNS & Email Configuration Guide for Primus Backend
+# 🌐 DNS Configuration Guide for Primus Backend
 
-This guide helps you set up DNS records and email configuration for your Primus backend deployment.
+This guide helps you set up DNS records for your Primus backend deployment. Email configuration is now optional and can be set up later if needed.
 
 ## 📡 DNS Records Setup
 
@@ -109,7 +109,9 @@ dig yourdomain.com @1.1.1.1
 - **Maximum time**: 24-48 hours
 - **TTL 300**: Changes propagate in ~5 minutes
 
-## 📧 Email Configuration Guide
+## 📧 Email Configuration Guide (Optional)
+
+**Note:** Email configuration is now optional. Your backend works fully without email setup. Configure email only if you need password reset or notification features.
 
 ### 🎯 Gmail Setup (Recommended)
 
@@ -130,12 +132,23 @@ Gmail is the easiest and most reliable option for SMTP:
 
 #### Step 3: Update .env File
 ```env
+# Enable email features first
+ENABLE_EMAIL_FEATURES=True
+ENABLE_PASSWORD_RESET=True
+ENABLE_EMAIL_VERIFICATION=True
+
+# Configure SMTP
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your-email@gmail.com
 SMTP_PASSWORD=abcd efgh ijkl mnop
 SMTP_FROM_EMAIL=noreply@yourdomain.com
 SMTP_FROM_NAME=Primus Gaming Center
+```
+
+#### Step 4: Restart Backend
+```bash
+sudo systemctl restart primus-backend
 ```
 
 ### 🔧 Alternative SMTP Providers
