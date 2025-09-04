@@ -222,15 +222,43 @@ mkdir -p /var/www/primus/{backend,frontend,uploads,logs,backups}
 mkdir -p /var/log/primus
 
 # Clone the repository
-print_info "Cloning Primus backend repository..."
+print_info "Setting up Primus backend repository..."
 cd /var/www/primus
+
 if [[ -d "backend/.git" ]]; then
+    print_info "Existing repository found, updating..."
     cd backend
-    git pull origin main
+    
+    # Stash any local changes
+    git stash push -m "Auto-stash before deployment update" || true
+    
+    # Reset to clean state
+    git reset --hard HEAD || true
+    
+    # Pull latest changes
+    git fetch origin main || true
+    git reset --hard origin/main || true
+    
+    print_status "Repository updated"
     cd ..
 else
-    rm -rf backend
-    git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend
+    print_info "Cloning fresh repository..."
+    # Remove any existing backend directory that's not a git repo
+    rm -rf backend 2>/dev/null || true
+    
+    # Clone the repository
+    if git clone https://github.com/LORD-VAISHWIK/primus-backend.git backend; then
+        print_status "Repository cloned successfully"
+    else
+        print_error "Failed to clone repository"
+        print_info "Trying alternative approach..."
+        # Try downloading as zip if git clone fails
+        wget -O backend.zip https://github.com/LORD-VAISHWIK/primus-backend/archive/refs/heads/main.zip
+        unzip -q backend.zip
+        mv primus-backend-main backend
+        rm -f backend.zip
+        print_status "Repository downloaded as zip"
+    fi
 fi
 
 # Set up Python virtual environment
