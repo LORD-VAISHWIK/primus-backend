@@ -277,27 +277,57 @@ source venv/bin/activate
 print_info "Installing Python dependencies..."
 pip install --upgrade pip setuptools wheel
 
-# Install requirements with error handling for problematic packages
-print_info "Installing Python packages from requirements.txt..."
-if pip install -r requirements.txt; then
-    print_status "All Python packages installed successfully"
-else
-    print_warning "Some packages failed to install, trying alternative approach..."
-    # Try installing without python-magic first
-    pip install -r requirements.txt --ignore-installed python-magic || true
-    
-    # Try alternative file magic package if python-magic fails
-    if ! python3 -c "import magic" 2>/dev/null; then
-        print_info "Installing alternative file-magic package..."
-        pip install file-magic==0.4.1 || true
+# Install core packages first (essential for service to work)
+print_info "Installing core Python packages..."
+
+# Install essential packages individually with error handling
+essential_packages=(
+    "fastapi==0.108.0"
+    "uvicorn[standard]==0.25.0"
+    "gunicorn==21.2.0"
+    "sqlalchemy==2.0.25"
+    "psycopg2-binary==2.9.9"
+    "pydantic==2.5.3"
+    "python-dotenv==1.0.0"
+)
+
+print_info "Installing essential packages individually..."
+for package in "${essential_packages[@]}"; do
+    print_info "Installing $package..."
+    if pip install "$package"; then
+        print_status "✅ $package installed"
+    else
+        print_error "❌ Failed to install $package"
     fi
-    
-    print_status "Python packages installation completed (some packages may have been skipped)"
-fi
+done
+
+# Install remaining packages from requirements.txt
+print_info "Installing remaining packages from requirements.txt..."
+pip install -r requirements.txt || print_warning "Some additional packages may have failed to install"
+
+# Verify critical packages are available
+print_info "Verifying critical packages..."
+critical_imports=("fastapi" "uvicorn" "gunicorn" "sqlalchemy" "psycopg2")
+for import_name in "${critical_imports[@]}"; do
+    if python -c "import $import_name" 2>/dev/null; then
+        print_status "✅ $import_name available"
+    else
+        print_error "❌ $import_name not available"
+        # Try to install the missing package
+        case $import_name in
+            "psycopg2")
+                pip install psycopg2-binary==2.9.9 || true
+                ;;
+            *)
+                pip install "$import_name" || true
+                ;;
+        esac
+    fi
+done
 
 # Ensure alembic is installed for database migrations
 print_info "Ensuring database migration tools are available..."
-if ! /var/www/primus/backend/venv/bin/python -c "import alembic" 2>/dev/null; then
+if ! python -c "import alembic" 2>/dev/null; then
     print_info "Installing alembic for database migrations..."
     pip install alembic==1.13.1 || print_warning "Failed to install alembic, migrations will be skipped"
 fi

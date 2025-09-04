@@ -415,27 +415,58 @@ source venv/bin/activate
 print_info "Installing Python dependencies..."
 pip install --upgrade pip setuptools wheel
 
-# Install requirements with error handling for problematic packages
-print_info "Installing Python packages from requirements.txt..."
-if pip install -r requirements.txt; then
-    print_status "All Python packages installed successfully"
-else
-    print_warning "Some packages failed to install, trying alternative approach..."
-    # Try installing without python-magic first
-    pip install -r requirements.txt --ignore-installed python-magic || true
-    
-    # Try alternative file magic package if python-magic fails
-    if ! python3 -c "import magic" 2>/dev/null; then
-        print_info "Installing alternative file-magic package..."
-        pip install file-magic==0.4.1 || true
+# Install core packages first (essential for service to work)
+print_info "Installing core Python packages..."
+pip install --upgrade pip setuptools wheel
+
+# Install essential packages individually with error handling
+essential_packages=(
+    "fastapi==0.108.0"
+    "uvicorn[standard]==0.25.0"
+    "gunicorn==21.2.0"
+    "sqlalchemy==2.0.25"
+    "psycopg2-binary==2.9.9"
+    "pydantic==2.5.3"
+    "python-dotenv==1.0.0"
+)
+
+print_info "Installing essential packages individually..."
+for package in "${essential_packages[@]}"; do
+    print_info "Installing $package..."
+    if pip install "$package"; then
+        print_status "✅ $package installed"
+    else
+        print_error "❌ Failed to install $package"
     fi
-    
-    print_status "Python packages installation completed (some packages may have been skipped)"
-fi
+done
+
+# Install remaining packages from requirements.txt
+print_info "Installing remaining packages from requirements.txt..."
+pip install -r requirements.txt || print_warning "Some additional packages may have failed to install"
+
+# Verify critical packages are available
+print_info "Verifying critical packages..."
+critical_imports=("fastapi" "uvicorn" "gunicorn" "sqlalchemy" "psycopg2")
+for import_name in "${critical_imports[@]}"; do
+    if python -c "import $import_name" 2>/dev/null; then
+        print_status "✅ $import_name available"
+    else
+        print_error "❌ $import_name not available"
+        # Try to install the missing package
+        case $import_name in
+            "psycopg2")
+                pip install psycopg2-binary==2.9.9 || true
+                ;;
+            *)
+                pip install "$import_name" || true
+                ;;
+        esac
+    fi
+done
 
 # Ensure alembic is installed for database migrations
 print_info "Ensuring database migration tools are available..."
-if ! /var/www/primus/backend/venv/bin/python -c "import alembic" 2>/dev/null; then
+if ! python -c "import alembic" 2>/dev/null; then
     print_info "Installing alembic for database migrations..."
     pip install alembic==1.13.1 || print_warning "Failed to install alembic, migrations will be skipped"
 fi
@@ -656,7 +687,7 @@ Environment=PATH=/var/www/primus/backend/venv/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONPATH=/var/www/primus/backend
 Environment=PYTHONUNBUFFERED=1
 ExecStartPre=/bin/sleep 5
-ExecStart=/var/www/primus/backend/venv/bin/python -m gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log --log-level info
+ExecStart=/var/www/primus/backend/venv/bin/gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log --log-level info
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=10
@@ -674,7 +705,51 @@ ReadWritePaths=/var/www/primus /var/log/primus /tmp /var/lib/postgresql
 WantedBy=multi-user.target
 EOF
 
-print_status "Systemd service created"
+# Create a startup script to ensure proper environment
+cat > /var/www/primus/backend/start_backend.sh << 'EOF'
+#!/bin/bash
+cd /var/www/primus/backend
+source venv/bin/activate
+exec gunicorn -w 2 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8000 --timeout 120 --keep-alive 2 --max-requests 1000 --max-requests-jitter 100 --access-logfile /var/log/primus/access.log --error-logfile /var/log/primus/error.log --log-level info
+EOF
+
+chmod +x /var/www/primus/backend/start_backend.sh
+chown primus:primus /var/www/primus/backend/start_backend.sh
+
+# Update systemd service to use the startup script
+cat > /etc/systemd/system/primus-backend.service << EOF
+[Unit]
+Description=Primus Backend FastAPI Application
+Documentation=https://github.com/LORD-VAISHWIK/primus-backend
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=primus
+Group=primus
+WorkingDirectory=/var/www/primus/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/bin/sleep 5
+ExecStart=/var/www/primus/backend/start_backend.sh
+ExecReload=/bin/kill -s HUP \$MAINPID
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=primus-backend
+
+# Security settings (relaxed for debugging)
+NoNewPrivileges=yes
+ReadWritePaths=/var/www/primus /var/log/primus /tmp /var/lib/postgresql
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+print_status "Systemd service and startup script created"
 
 # =============================================================================
 # NGINX CONFIGURATION
@@ -1036,17 +1111,49 @@ cd /var/www/primus/backend
 source venv/bin/activate
 
 # Test if the application can start
-print_info "Verifying application can run..."
-timeout 10s /var/www/primus/backend/venv/bin/python -c "
+print_info "Verifying application and dependencies..."
+
+# Test critical imports
+print_info "Testing critical package imports..."
+/var/www/primus/backend/venv/bin/python -c "
 import sys
 sys.path.insert(0, '/var/www/primus/backend')
+
+# Test essential imports
+try:
+    import uvicorn
+    print('✅ uvicorn imported successfully')
+except ImportError as e:
+    print(f'❌ uvicorn import failed: {e}')
+    sys.exit(1)
+
+try:
+    import gunicorn
+    print('✅ gunicorn imported successfully')
+except ImportError as e:
+    print(f'❌ gunicorn import failed: {e}')
+    sys.exit(1)
+
+try:
+    import fastapi
+    print('✅ fastapi imported successfully')
+except ImportError as e:
+    print(f'❌ fastapi import failed: {e}')
+    sys.exit(1)
+
 try:
     from main import app
-    print('✅ Application imports successfully')
+    print('✅ Application imported successfully')
 except Exception as e:
     print(f'❌ Application import failed: {e}')
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
-" || print_warning "Application test failed, but continuing..."
+" || {
+    print_error "Critical packages are missing. Attempting to reinstall..."
+    pip install fastapi==0.108.0 uvicorn[standard]==0.25.0 gunicorn==21.2.0
+    print_warning "Reinstalled core packages, but there may still be issues"
+}
 
 # Start the systemd service
 print_info "Starting primus-backend service..."
