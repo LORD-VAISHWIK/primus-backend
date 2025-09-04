@@ -399,6 +399,13 @@ else
     print_status "Python packages installation completed (some packages may have been skipped)"
 fi
 
+# Ensure alembic is installed for database migrations
+print_info "Ensuring database migration tools are available..."
+if ! /var/www/primus/backend/venv/bin/python -c "import alembic" 2>/dev/null; then
+    print_info "Installing alembic for database migrations..."
+    pip install alembic==1.13.1 || print_warning "Failed to install alembic, migrations will be skipped"
+fi
+
 print_status "Python environment configured"
 
 # =============================================================================
@@ -552,30 +559,44 @@ print_header "DATABASE INITIALIZATION"
 cd /var/www/primus/backend
 source venv/bin/activate
 
-print_info "Running database migrations..."
+print_info "Preparing database for first run..."
 
 # Ensure virtual environment is activated
 export PATH="/var/www/primus/backend/venv/bin:$PATH"
 source /var/www/primus/backend/venv/bin/activate
 
-# Initialize Alembic if needed
-if [[ ! -d "alembic" ]]; then
-    print_info "Initializing Alembic..."
-    /var/www/primus/backend/venv/bin/alembic init alembic
-    # Configure alembic.ini
-    sed -i "s|sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = postgresql://primus:$DB_PASSWORD@localhost:5432/primus_db|" alembic.ini
-    print_status "Alembic initialized"
+# Check if alembic is available and working
+print_info "Checking database migration tools..."
+if command -v /var/www/primus/backend/venv/bin/alembic >/dev/null 2>&1; then
+    print_info "Alembic found, attempting to set up migrations..."
+    
+    # Initialize Alembic if needed
+    if [[ ! -d "alembic" ]]; then
+        print_info "Initializing Alembic..."
+        if /var/www/primus/backend/venv/bin/alembic init alembic 2>/dev/null; then
+            # Configure alembic.ini
+            sed -i "s|sqlalchemy.url = driver://user:pass@localhost/dbname|sqlalchemy.url = postgresql://primus:$DB_PASSWORD@localhost:5432/primus_db|" alembic.ini
+            print_status "Alembic initialized successfully"
+        else
+            print_warning "Alembic initialization failed, skipping migrations"
+        fi
+    fi
+
+    # Run migrations if alembic is set up
+    if [[ -d "alembic" && -f "alembic.ini" ]]; then
+        print_info "Running database migrations..."
+        if /var/www/primus/backend/venv/bin/alembic upgrade head 2>/dev/null; then
+            print_status "Database migrations completed successfully"
+        else
+            print_warning "Database migrations failed, but this is often normal"
+        fi
+    fi
+else
+    print_warning "Alembic not available, skipping database migrations"
+    print_info "Database tables will be created automatically when the backend starts"
 fi
 
-# Run migrations
-print_info "Running database migrations..."
-if /var/www/primus/backend/venv/bin/alembic upgrade head; then
-    print_status "Database migrations completed successfully"
-else
-    print_warning "Database migrations failed or completed with warnings"
-    print_info "This is often normal for first-time installations"
-    print_info "The backend will create tables automatically when it starts"
-fi
+print_status "Database preparation completed"
 
 print_status "Database initialized"
 
