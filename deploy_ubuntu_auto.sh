@@ -112,10 +112,24 @@ apt install -y postgresql postgresql-contrib libpq-dev
 DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 
 print_info "Setting up PostgreSQL database..."
-sudo -u postgres psql -c "DROP USER IF EXISTS primus;" || true
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS primus_db;" || true
-sudo -u postgres psql -c "CREATE USER primus WITH PASSWORD '$DB_PASSWORD';"
-sudo -u postgres psql -c "CREATE DATABASE primus_db OWNER primus;"
+# Check if database user exists
+if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='primus'" | grep -q 1; then
+    print_info "PostgreSQL user 'primus' already exists, updating password..."
+    sudo -u postgres psql -c "ALTER USER primus WITH PASSWORD '$DB_PASSWORD';"
+else
+    print_info "Creating PostgreSQL user 'primus'..."
+    sudo -u postgres psql -c "CREATE USER primus WITH PASSWORD '$DB_PASSWORD';"
+fi
+
+# Check if database exists
+if sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw primus_db; then
+    print_info "Database 'primus_db' already exists, using existing database..."
+else
+    print_info "Creating database 'primus_db'..."
+    sudo -u postgres psql -c "CREATE DATABASE primus_db OWNER primus;"
+fi
+
+# Ensure proper permissions
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE primus_db TO primus;"
 
 # Configure PostgreSQL for better performance
@@ -192,7 +206,12 @@ print_header "PYTHON APPLICATION SETUP"
 
 # Create application user
 print_info "Creating application user..."
-useradd -r -s /bin/false -d /var/www/primus primus || true
+if id "primus" &>/dev/null; then
+    print_info "User 'primus' already exists, using existing user..."
+else
+    useradd -r -s /bin/false -d /var/www/primus primus
+    print_status "Created user 'primus'"
+fi
 
 # Create directory structure
 print_info "Setting up directory structure..."
